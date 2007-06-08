@@ -1,0 +1,309 @@
+=head1 NAME
+
+OODoc::Template - Simple template system
+
+=head1 DESCRIPTION
+
+The OODoc::Template is probably the simpelest (most feature-less)
+template system you can image, but still capable of doing almost
+everything.
+
+=head1 METHODS
+
+OODoc::Template-E<gt>B<new>(OPTIONS)
+
+=over 4
+
+Create a new formatter object.  The C<template> and C<search> options can
+be overruled just as any other value.
+
+ Option  --Default
+ search    '.'
+ template  <build-in>
+
+. search => STRING|ARRAY
+
+=over 4
+
+A colon separated list of directories, packed in a STRING or an ARRAY
+of directories, to be searched to find a named template.  All search paths
+are used when a template is being searched for, from inside out defined by
+the nestings.
+
+=back
+
+. template => CODE
+
+=over 4
+
+The callback to insert some template.  This is treated and used as any
+other value.  By default L<includeTemplate()|OODoc::Template/"Internals"> is called.
+
+=back
+
+=back
+
+$obj-E<gt>B<parse>(TEMPLATE, (VALUES|PAIRS))
+
+=over 4
+
+The TEMPLATE is a string, which is processed.  All tags are replaced
+by values.  The VALUES is a hash which relates tags to values to be
+inserted.  These parameters can also be passed as list of PAIRS.
+
+See L</Values> about the ways to control the output.
+
+=back
+
+$obj-E<gt>B<parseFile>(FILENAME, (VALUES|PAIRS))
+
+=over 4
+
+Parse the content of the file with specified FILENAME.  The current value
+of C<search> is used as path to find it.
+
+=back
+
+=head2 Internals
+
+$obj-E<gt>B<allValuesFor>(TAG)
+
+=over 4
+
+Collects all values related to TAG in all nestings of values.  The most
+preferred is listed first.
+
+=back
+
+$obj-E<gt>B<handle>(TAG, [ATTRIBUTES, [TEXT]])
+
+=over 4
+
+The TAG was found to be filled-in.  In the block of the start tags,
+some extra ATTRIBUTES (here still as string) may be specified. The
+TEXT of the container (the encapsulated text) is the third argument.
+The latter may be C<undef> if the tag is not used as block but as
+terminator.  You probably will not call this method.
+
+=back
+
+$obj-E<gt>B<includeTemplate>(ATTRIBUTES)
+
+=over 4
+
+This is the default implementation for the "template" tag.  The ATTRIBUTES
+are set as values, visible in the included file.  Useful attributes are
+C<file> -to specified an input file- and C<search> to define directories
+as template search path.
+
+=back
+
+$obj-E<gt>B<loadTemplate>(FILENAME)
+
+=over 4
+
+Returns the string, which is the whole contents of the file, and some
+info about the file as HASH.
+
+=back
+
+$obj-E<gt>B<popValues>
+
+=over 4
+
+Remove one level of values.
+
+=back
+
+$obj-E<gt>B<pushValues>(HASH)
+
+=over 4
+
+Add new level of values to the known list.  The data in the HASH is
+copied, and a reference to the copy returned.  The copy may be changed
+afterwards.
+
+=back
+
+$obj-E<gt>B<valueFor>(TAG, ATTRIBUTES, TEXTREF)
+
+=over 4
+
+Lookup the value for TAG in the known data.  See L</Values> about the
+way this is done.  The ATTRIBUTES (hash of key-values) and TEXTREF
+(text of contained block) are used when the TAG related to a code
+reference which is to produce new values dynamicly.
+
+=back
+
+=head1 DETAILS
+
+This module work as simple as possible: pass a string to the C<parse>
+method with some values to be inserted in the string, and the result
+is printed to stdout.  See the C<select> statement of Perl to read how
+to redirect the output to a different destination, for instance a file.
+
+=head2 Getting started
+
+The general set-up is like this:
+
+ use OODoc::Template;
+ my $t = OODoc::Template->new;
+
+ my $template = ".....";  # usually read from file
+ my %values   = ( a => 3 );
+
+ open OUTPUT, ">", $filename or die;
+ select OUTPUT;
+
+ $t->parse($template, \%values);
+
+=head2 Expanding
+
+The C<$template> string contains HTML with special comment blocks.  These
+special comment blocks are replaced by the specified C<values>.  The block
+can appear in two shapes (which may provided different output):
+
+ <!--{TAG ATTRIBUTES}-->
+    some text
+ <!--{/TAG}-->
+
+or
+
+ <!--{TAG ATTRIBUTES}-->
+
+The first shows a I<container>, the second a terminal tag.  The TAG is
+one of the specified values. ATTRIBUTES are used when the TAG is not a
+constant value, but dynamically produced.
+
+When the TAG starts with "NOT_", it is used to negate
+the boolean interpretation of the values returned by evaluating the tag:
+
+ <!--{NOT_want_something ATTRIBUTES}-->
+   ...
+ <!--{/want_something}-->
+
+An if-then-else looks like this:
+
+ <!--{want_something ATTRIBUTES}-->
+   ...
+ <!--{ELSE_want_something}-->
+   ...
+ <!--{/want_something}-->
+
+=head2 Tags
+
+Tags are barewords (may only contain [0-9a-zA-Z_]), which are looked-up in
+the "%values", which are passed with L<parse()|OODoc::Template/"METHODS"> to produce a value (see
+section about Values).
+
+=head2 Attributes
+
+Attibutes are values which are used when the text which is to be inserted
+is produced dynamically.  Their syntax is like this:
+
+ # attributes are optionally separated by comma's
+ attrs:  attr , attrs
+       | attr attrs
+
+ # a hash initiation syntax may be used, but single
+ # barewords as well
+ attr:   bareword
+       | bareword => "string'
+       | bareword => 'string'
+       | bareword => bareword
+       | bareword => variable
+
+ # pass value produced by other tag
+ variable:
+         '$' tag
+       | '${' tag attrs '}'
+
+A string may contain variables, which are stringified.  This means that
+tags which produce hashes or arrays are not usuable to interpolate.
+
+I<Example:> 
+
+ <!--{section nr => 2, show_number, a => "monkey", chapter => $cnr}-->
+
+The attributes result (internally) in a hash (of ARGS) which contains
+the keys C<nr>, C<show_number>, C<a>, and C<chapter> with respecively
+values C<2>, true, C<monkey>, and the looked-up value for C<cnr>.
+
+=head2 Values
+
+The values which are related to the tags are rather powerful.  When
+a certain tag can not be found, the value is C<undef>.
+
+=over 4
+
+=item * undef
+
+When the value is C<undef> (explicitly or because it was not found),
+the container or terminator will be skipped.  The whole text simply
+disappears.
+
+=item * string
+
+When the value is a C<string>, that string is inserted.  In case of
+a container, the container's text is not used.
+
+=item * HASH
+
+In case the value is (reference to, of course) a HASH, the values
+of that HASH are remembered.  They are used when parsing the contents
+of the container, and overrule the values defined by encapsulating
+blocks.  The container's text is parsed only once.
+
+The HASH key of C<DYNAMIC> has a special purpose, which is described in
+the next section.  The C<NEXT> key is reserved.
+
+=item * ARRAY of HASHes
+
+When the value is an ARRAY of HASHes, the container is parsed again
+for each HASH.  In practice, this is a C<foreach> loop over the
+array.
+
+=item * CODE
+
+As last option, you can provide a CODE reference.  This function is
+called with the tag, the specified attributes (as HASH reference),
+and the container's text.  The value which is returned can be anything
+of the above (only CODE references are not accepted).
+
+=back
+
+=head2 DYNAMIC value
+
+The procedure of a value lookup is quite straight forward: start with
+the values defined by the innermost block (container) which defined a
+HASH or ARRAY of HASHes, and work the way back through the enclosing
+blocks until the initial values have been reached.
+
+If the tag was not found as key, C<undef> is used.  If the key was found,
+than the related value is treated as described in the previous section.
+
+Working through the list of blocks, a miss on a hash will cause a second
+lookup: for the key C<DYNAMIC>.  If a block's set of values contains this
+key, the related CODE reference is called to produce a value.  If the
+produced value is C<undef>, the search will continue to outer blocks.
+Other results will be treated as any other value.
+
+The C<DYNAMIC> keys may be used like AUTOLOAD: to handle unexpected
+keys.  For instance, used in the initial hash of values (passed to
+the C<parse> method) it can be used to produce warnings on use of
+undefined tags.
+
+=head1 SEE ALSO
+
+This module is part of OODoc-Template distribution version 0.02,
+built on June 08, 2007. Website: F<http://perl.overmeer.net/oodoc-template/>
+
+=head1 LICENSE
+
+Copyrights 2003,2007 by Mark Overmeer. For other contributors see ChangeLog.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+See F<http://www.perl.com/perl/misc/Artistic.html>
+

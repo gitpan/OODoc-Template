@@ -1,4 +1,9 @@
 ChangeLog
 MANIFEST
+META.yml                                 Module meta-data (added by MakeMaker)
 Makefile.PL
+README
 lib/OODoc/Template.pm
+lib/OODoc/Template.pod
+t/00run.t
+t/pod.t
