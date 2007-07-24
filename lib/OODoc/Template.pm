@@ -1,12 +1,18 @@
 # Copyrights 2003,2007 by Mark Overmeer.
 #  For other contributors see ChangeLog.
 # See the manual pages for details on the licensing terms.
-# Pod stripped from pm file by OODoc 1.00.
+# Pod stripped from pm file by OODoc 1.02.
+use strict;
+use warnings;
+
 package OODoc::Template;
 use vars '$VERSION';
-$VERSION = '0.02';
+$VERSION = '0.1';
 
 use IO::File   ();
+use Data::Dumper;
+
+my @default_markers = ('<!--{', '}-->', '<!--{/', '}-->');
 
 
 sub new(@)
@@ -17,166 +23,188 @@ sub new(@)
 sub init($)
 {   my ($self, $args) = @_;
 
-    my $templ  = $args->{template} || sub { $self->includeTemplate($_[1]) };
+    $self->{cached}     = {};
+    $self->{macros}     = {};
 
-    $self->pushValues
-     ( template => $templ
-     , search   => '.'
-     );
-    
+    $args->{template} ||= sub { $self->includeTemplate(@_) };
+    $args->{macro}    ||= sub { $self->defineMacro(@_) };
+    $args->{search}   ||= '.';
+    $args->{markers}  ||= \@default_markers;
+    $args->{define}   ||= sub { +{} };
+
+    $self->pushValues($args);
     $self;
 }
 
 
-sub parse($@)
-{   my ($self, $template) = (shift, shift);
+sub process($)
+{   my ($self, $templ) = (shift, shift);
 
-    my $values = @_==1 ? shift : {@_};
-    $values->{source} ||= 'parse()';
-    $self->pushValues($values);
+    my $values = @_==1 ? shift : @_ ? {@_} : {};
 
-    while( $template =~ s|^(.*?)        # text before container
-                           \<\!\-\-\{   # tag open
-                           \s* (NOT_)?
-                               (\w+)    # tag
-                           \s* (.*?)    # attributes
-                           \s* \}\-\-\> # tag open end
-                         ||sx
-         )
-    {   print $1;
-        my ($not, $tag, $attributes) = ($2, $3, $4);
+    my $tree     # parse with real copy
+      = ref $templ eq 'SCALAR' ? $self->parseTemplate($$templ)
+      : ref $templ eq 'ARRAY'  ? $templ
+      :                          $self->parseTemplate("$templ");
 
-        if($template =~ s| (.*?)             # something
-                           ( \<\!\-\-\{      # tag close
-                             \s* \/$tag      # "our" tag
-                             \s* \}\-\-\>    # tag close end
-                           )
-                         ||sx
-           )
-        {   # found container
-            my ($container, $endtag) = ($1, $2);
+    $self->pushValues($values) if keys %$values;
 
-            if( $container =~ m/\<\!\-\-\{\s*$tag\b/ )
-            {   # oops: container is terminated for a brother (nesting
-                # is not permitted. Try to correct my greedyness.
-                $template = $container.$endtag.$template;
-                $self->handle($tag, $attributes, undef);
-            }
-            else
-            {   # container is mine!
-                $self->handle($tag, $attributes, $container);
-            }
+    my @output;
+    foreach my $node (@$tree)
+    {   unless(ref $node)
+        {   push @output, $node;
+            next;
         }
-        else
-        {   # not a container
-            $self->handle($tag, $attributes, undef);
-        }
-    }
-
-    print $template;                    # remains
-    $self->popValues;
-}
-
-
-sub parseFile($@)
-{   my ($self, $filename) = (shift, shift);
     
-    my $values = @_==1 ? shift : {@_};
-    $values->{source} ||= 'parseFile()';
+        my ($tag, $attr, $then, $else) = @$node;
 
-    $self->parse($self->loadTemplate($filename));
+        my %attrs;
+        while(my($k, $v) = each %$attr)
+        {   $attrs{$k} = ref $v ne 'ARRAY' ? $v
+              : join '',
+                   map {ref $_ eq 'ARRAY' ? scalar $self->valueFor(@$_) : $_}
+                      @$v;
+        }
+
+        my $value = $self->valueFor($tag, \%attrs, $then, $else);
+        unless(defined $then || defined $else)
+        {   push @output, $value if defined $value;
+            next;
+        }
+
+        my $take_else
+           = !defined $value || (ref $value eq 'ARRAY' && @$value==0);
+
+        my $container = $take_else ? $else : $then;
+
+        defined $container
+            or next;
+
+        $self->pushValues(\%attrs) if keys %attrs;
+
+        if($take_else)
+        {    my ($nest_out, $nest_tree) = $self->process($container);
+             push @output, $nest_out;
+             $node->[3] = $nest_tree;
+        }
+        elsif(ref $value eq 'HASH')
+        {    my ($nest_out, $nest_tree) = $self->process($container, $value);
+             push @output, $nest_out;
+             $node->[2] = $nest_tree;
+        }
+        elsif(ref $value eq 'ARRAY')
+        {    foreach my $data (@$value)
+             {   my ($nest_out, $nest_tree) = $self->process($container, $data);
+                 push @output, $nest_out;
+                 $node->[2] = $nest_tree;
+             }
+        }
+        else { die "only HASH or ARRAY values can control a loop ($tag)\n" }
+
+        $self->popValues if keys %attrs;
+    }
+    
+    $self->popValues if keys %$values;
+
+              wantarray ? (join('', @output), $tree)  # LIST context
+    : defined wantarray ? join('', @output)           # SCALAR context
+    :                     print @output;              # VOID context
 }
 
 
-sub handle($;$$)
-{   my ($self, $tag, $attributes, $container) = @_;
-    defined $attributes or $attributes = '';
-    defined $container  or $container  = '';
+sub processFile($;@)
+{   my ($self, $filename) = (shift, shift);
 
-    my %attrs;
-    while( $attributes =~
-        s/^\s*(\w+)                     # attribute name
-           \s* (?: \=\> \s*             # optional value
-                   ( \"[^"]*\"          # dquoted value
-                   | \'[^']*\'          # squoted value
-                   | \$\{ [^}]* \}      # complex variable
-                   | \$\w+              # simple variable
-                   | \S+                # unquoted value
-                   )
-                )?
-                \s* \,?                 # optionally separated by commas
-          //xs)
-    {  my ($k, $v) = ($1, $2);
-       defined $v or $v = 1;
+    my $values = @_==1 ? shift : {@_};
+    $values->{source} ||= $filename;
 
-       if($v =~ m/^\'(.*)\'$/)
-       {  # Single quoted parameter, no interpolation
-          $v = $1;
-       }
-       elsif($v =~ m/^\"(.*)\"$/)
-       {  # Double quoted parameter, with interpolation
-          $v = $1;
-          $v =~ s/\$\{(\w+)\s*(.*?)}|\$(\w+)/$self->handle($1, $2)/ge;
-       }
-       elsif($v =~ m/^\$\{(\w+)\s*(.*?)}$/)
-       {  # complex variables
-          $v = $self->handle($1, $2);
-       }
-       elsif($v =~ m/^\$(\w+)$/)
-       {  # simple variables
-          $v = $self->handle($1);
-       }
-
-       $attrs{$k} = $v;
+    my $template;
+    if(exists $self->{cached}{$filename})
+    {   $template = $self->{cached}{$filename}
+            or return ();
+    }
+    else
+    {   $template = $self->loadFile($filename);
     }
 
-    my $value  = $self->valueFor($tag, \%attrs, \$container);
-    return unless defined $value;       # ignore container
+    my ($output, $tree) = $self->process($template, $values);
+    $self->{cached}{$filename} = $tree;
 
-       if(!ref $value)           { print $value }
-    elsif(ref $value eq 'HASH')  { $self->parse($container, $value) }
-    elsif(ref $value eq 'ARRAY') { $self->parse($container, $_) for @$value }
-    else { die "Huh? value for $tag is a ".ref($value)."\n" }
+              wantarray ? ($output, $tree)  # LIST context
+    : defined wantarray ? $output           # SCALAR context
+    :                     print $output;    # VOID context
 }
 
 
-sub valueFor($$$)
-{   my ($self, $tag, $attrs, $textref) = @_;
+sub defineMacro($$$$)
+{   my ($self, $tag, $attrs, $then, $else) = @_;
+    my $name = $attrs->{name}
+        or die "ERROR: macro requires a name\n";
 
+    defined $else
+        and die "ERROR: macros cannot have an else part ($name)\n";
+
+    my %attrs = %$attrs;   # for closure
+    $attrs{markers} = $self->valueFor('markers');
+
+    $self->{macros}{$name} =
+        sub { my ($tag, $at) = @_;
+              $self->process($then, +{%attrs, %$at});
+            };
+
+    ();
+    
+}
+
+
+sub valueFor($;$$$)
+{   my ($self, $tag, $attrs, $then, $else) = @_;
+
+#warn "Looking for $tag";
+#warn Dumper $self->{values};
     for(my $set = $self->{values}; defined $set; $set = $set->{NEXT})
     {   
-        if(defined(my $v = $set->{$tag}))
+        my $v = $set->{$tag};
+
+        if(defined $v)
         {   # HASH  defines container
             # ARRAY defines container loop
             # object or other things can be stored as well, but may get
             # stringified.
-            return ref $v eq 'CODE' ? $v->($tag, $attrs, $textref) : $v;
+            return wantarray ? ($v, $attrs, $then, $else) : $v
+                if ref $v ne 'CODE';
+
+            return wantarray
+                 ? $v->($tag, $attrs, $then, $else)
+                 : ($v->($tag, $attrs, $then, $else))[0]
         }
 
-        if(defined(my $code = $set->{DYNAMIC}))
-        {   my $value = $code->($tag, $attrs, $textref);
-            return $value if defined $value;
+        my $code = $set->{DYNAMIC};
+        if(defined $code)
+        {   my ($value, @other) = $code->($tag, $attrs, $then, $else);
+            return wantarray ? ($value, @other) : $value
+                if defined $value;
             # and continue the search otherwise
         }
     }
 
-    undef;
+    ();
 }
 
 
-sub allValuesFor($)
-{   my ($self, $tag) = @_;
+sub allValuesFor($;$$$)
+{   my ($self, $tag, $attrs, $then, $else) = @_;
     my @values;
 
     for(my $set = $self->{values}; defined $set; $set = $set->{NEXT})
     {   
         if(defined(my $v = $set->{$tag}))
-        {   my $t = ref $v eq 'CODE' ? $v->($tag, $attrs, $textref) : $v;
+        {   my $t = ref $v eq 'CODE' ? $v->($tag, $attrs, $then, $else) : $v;
             push @values, $t if defined $t;
         }
 
         if(defined(my $code = $set->{DYNAMIC}))
-        {   my $t = $code->($tag, $attrs, $textref);
+        {   my $t = $code->($tag, $attrs, $then, $else);
             push @values, $t if defined $t;
         }
     }
@@ -187,6 +215,26 @@ sub allValuesFor($)
 
 sub pushValues($)
 {   my ($self, $attrs) = @_;
+
+    if(my $markers = $attrs->{markers})
+    {   my @markers = ref $markers eq 'ARRAY' ? @$markers
+         : map {s/\\\,//g; $_} split /(?!<\\)\,\s*/, $markers;
+
+        push @markers, $markers[0] . '/'
+            if @markers==2;
+
+        push @markers, $markers[1]
+            if @markers==3;
+
+        $attrs->{markers}
+          = [ map { ref $_ eq 'Regexp' ? $_ : qr/\Q$_/ } @markers ];
+    }
+
+    if(my $search = $attrs->{search})
+    {   $attrs->{search} = [ split /\:/, $search ]
+            if ref $search ne 'ARRAY';
+    }
+
     $self->{values} = { %$attrs, NEXT => $self->{values} };
 }
 
@@ -197,21 +245,29 @@ sub popValues()
 }
 
 
-sub includeTemplate($)
-{   my ($self, $attrs) = @_;
-    my $values = $self->pushValues($attrs);
+sub includeTemplate($$$)
+{   my ($self, $tag, $attrs, $then, $else) = @_;
 
-    my $fn = $self->valueFor('file');
-    unless(defined $fn)
-    {   my $source = $self->valueFor('source') || '??';
-        die "ERROR: there is no filename found with template in $source\n";
+    defined $then || defined $else
+        and die "ERROR: template is not a container";
+
+    if(my $fn = $attrs->{file})
+    {   return (scalar $self->processFile($fn, $attrs));
     }
 
-    $self->popValues;
+    if(my $name = $attrs->{macro})
+    {    my $macro = $self->{macros}{$name}
+            or die "ERROR: cannot find macro $name";
+
+        return $macro->($tag, $attrs, $then, $else);
+    }
+
+    my $source = $self->valueFor('source') || '??';
+    die "ERROR: file or macro attribute required for template in $source\n";
 }
 
 
-sub loadTemplate($)
+sub loadFile($)
 {   my ($self, $relfn) = @_;
     my $absfn;
 
@@ -221,32 +277,151 @@ sub loadTemplate($)
     }
 
     unless($absfn)
-    {   my @srcs = map { ref $_ eq 'ARRAY' ? @$_ : split(':',$_) }
-                      $self->allValuesFor('source');
-
+    {   my @srcs = map { @$_ } $self->allValuesFor('search');
         foreach my $dir (@srcs)
-        {   my $fn = File::Spec->rel2abs($relfn, $dir);
-            last if -f $fn;
+        {   $absfn = File::Spec->rel2abs($relfn, $dir);
+            last if -f $absfn;
+            $absfn = undef;
         }
     }
 
-    unless($absfn)
-    {   my $source = $self->valueFor('source');
-        die "ERROR: Cannot find template $relfn as mentioned in $source\n";
-    }
-
-    if(my $cached = $templ_cache{$absfn})
-    {   my $mtime = $cached->[1]{mtime};
-        return @$cached if -M $absfn==$mtime;
+    unless(defined $absfn)
+    {   my $source = $self->valueFor('source') || '??';
+        die "ERROR: Cannot find template $relfn in $source\n";
     }
 
     my $in = IO::File->new($absfn, 'r');
     unless(defined $in)
-    {   my $source = $self->valueFor('source');
-        die "ERROR: Cannot read from $absfn, named in $source\n";
+    {   my $source = $self->valueFor('source') || '??';
+        die "ERROR: Cannot read from $absfn in $source: $!";
     }
 
-    join '', $in->getlines;  # auto-close in
+    \(join '', $in->getlines);  # auto-close in
+}
+
+
+sub parse($@)
+{   my ($self, $template) = (shift, shift);
+    $self->process(\$template, @_);
+}
+
+
+sub parseTemplate($)
+{   my ($self, $template) = @_;
+
+    my @frags;
+
+    my $markers = $self->valueFor('markers');
+
+    # Remove white-space escapes
+    $template =~ s! \\ (?: \s* (?: \\ \s*)? \n)+
+                    (?: \s* (?= $markers->[0] | $markers->[3] ))?
+                  !!mgx;
+
+    # NOT_$tag supported for backwards compat
+    while( $template =~ s!^(.*?)        # text before container
+                           $markers->[0] \s*
+                           (?: IF \s* )?
+                           (NOT (?:_|\s+) )?
+                           (\w+) \s*    # tag
+                           (.*?) \s*    # attributes
+                           $markers->[1]
+                         !!xs
+         )
+    {   push @frags, $1;
+        my ($not, $tag, $attr) = ($2, $3, $4);
+        my ($then, $else);
+
+        if($template =~ s! (.*?)           # contained
+                           ( $markers->[2]
+                             \s* $tag \s*  # "our" tag
+                             $markers->[3]
+                           )
+                         !!xs)
+        {   $then       = $1;
+            my $endline = $2;
+
+            if($then =~ m/$markers->[0] \s* $tag\b /xs)
+            {   # oops: container is terminated for a brother (nesting
+                # is not possible). Correct for the greedyness.
+                $template = $then.$endline.$template;
+                $then     = undef;
+            }
+        }
+
+        if($not) { ($then, $else) = (undef, $then) }
+        elsif(!defined $then) { }
+        elsif($then =~ s! $markers->[0]
+                          \s* ELSE (?:_|\s+)
+                          $tag \s*
+                          $markers->[1]
+                          (.*)
+                        !!xs)
+        {   # ELSE_$tag for backwards compat
+            $else = $1;
+        }
+
+        push @frags, [$tag, $self->parseAttrs($attr), $then, $else];
+    }
+
+    push @frags, $template;
+    \@frags;
+}
+
+
+sub parseAttrs($)
+{   my ($self, $string) = @_;
+
+    my %attrs;
+    while( $string =~
+        s/^\s*(\w+)                     # attribute name
+           \s* (?: \=\>? \s*            # optional a value
+                   ( \"[^"]*\"          # dquoted value
+                   | \'[^']*\'          # squoted value
+                   | \$\{ [^}]+ \}      # complex variable
+                   | \$\w+              # simple variable
+                   | [^\s,]+            # unquoted value
+                   )
+                )?
+                \s* \,?                 # optionally separated by commas
+          //xs)
+    {   my ($k, $v) = ($1, $2);
+        unless(defined $v)
+        {  $attrs{$k} = 1;
+           next;
+        }
+
+        if($v =~ m/^\'(.*)\'$/)
+        {   # Single quoted parameter, no interpolation
+            $attrs{$k} = $1;
+            next;
+        }
+
+        $v =~ s/^\"(.*)\"$/$1/;
+        my @v = split /( \$\{[^\}]+\} | \$\w+ )/x, $v;
+
+        if(@v==1 && $v[0] !~ m/^\$/)
+        {   $attrs{$k} = $v[0];
+            next;
+        }
+
+        my @steps;
+        foreach (@v)
+        {   if( m/^ (?: \$(\w+) | \$\{ (\w+) \s* \} ) $/x )
+            {   push @steps, [ $+ ];
+            }
+            elsif( m/^ \$\{ (\w+) \s* ([^\}]+? \s* ) \} $/x )
+            {   push @steps, [ $1, $self->parseAttrs($2) ];
+            }
+            else
+            {   push @steps, $_;
+            }
+        }
+
+        $attrs{$k} = \@steps;
+    }
+
+    \%attrs;
 }
 
 
