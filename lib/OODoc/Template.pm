@@ -7,13 +7,10 @@ use warnings;
 
 package OODoc::Template;
 use vars '$VERSION';
-$VERSION = '0.1';
-
+$VERSION = '0.11';
 use IO::File   ();
 use Data::Dumper;
-
 my @default_markers = ('<!--{', '}-->', '<!--{/', '}-->');
-
 
 sub new(@)
 {   my ($class, %args) = @_;
@@ -30,12 +27,11 @@ sub init($)
     $args->{macro}    ||= sub { $self->defineMacro(@_) };
     $args->{search}   ||= '.';
     $args->{markers}  ||= \@default_markers;
-    $args->{define}   ||= sub { +{} };
+    $args->{define}   ||= sub { shift; (+{}, @_) };
 
     $self->pushValues($args);
     $self;
 }
-
 
 sub process($)
 {   my ($self, $templ) = (shift, shift);
@@ -46,6 +42,9 @@ sub process($)
       = ref $templ eq 'SCALAR' ? $self->parseTemplate($$templ)
       : ref $templ eq 'ARRAY'  ? $templ
       :                          $self->parseTemplate("$templ");
+
+    defined $tree
+        or return ();
 
     $self->pushValues($values) if keys %$values;
 
@@ -61,12 +60,15 @@ sub process($)
         my %attrs;
         while(my($k, $v) = each %$attr)
         {   $attrs{$k} = ref $v ne 'ARRAY' ? $v
+              : @$v==1 ? scalar $self->valueFor(@{$v->[0]})
               : join '',
                    map {ref $_ eq 'ARRAY' ? scalar $self->valueFor(@$_) : $_}
                       @$v;
         }
 
-        my $value = $self->valueFor($tag, \%attrs, $then, $else);
+        (my $value, my $attrs, $then, $else)
+           = $self->valueFor($tag, \%attrs, $then, $else);
+
         unless(defined $then || defined $else)
         {   push @output, $value if defined $value;
             next;
@@ -80,7 +82,7 @@ sub process($)
         defined $container
             or next;
 
-        $self->pushValues(\%attrs) if keys %attrs;
+        $self->pushValues($attrs) if keys %$attrs;
 
         if($take_else)
         {    my ($nest_out, $nest_tree) = $self->process($container);
@@ -99,9 +101,10 @@ sub process($)
                  $node->[2] = $nest_tree;
              }
         }
+        elsif(!defined $value) { }
         else { die "only HASH or ARRAY values can control a loop ($tag)\n" }
 
-        $self->popValues if keys %attrs;
+        $self->popValues if keys %$attrs;
     }
     
     $self->popValues if keys %$values;
@@ -111,30 +114,35 @@ sub process($)
     :                     print @output;              # VOID context
 }
 
-
 sub processFile($;@)
 {   my ($self, $filename) = (shift, shift);
 
     my $values = @_==1 ? shift : {@_};
     $values->{source} ||= $filename;
 
-    my $template;
-    if(exists $self->{cached}{$filename})
-    {   $template = $self->{cached}{$filename}
-            or return ();
+    my $cache  = $self->{cached};
+
+    my ($output, $tree, $template);
+    if(exists $cache->{$filename})
+    {   $tree   = $cache->{$filename};
+        $output = $self->process($tree, $values)
+            if defined $tree;
+    }
+    elsif($template = $self->loadFile($filename))
+    {   ($output, $tree) = $self->process($template, $values);
+        $cache->{$filename} = $tree;
     }
     else
-    {   $template = $self->loadFile($filename);
+    {   $tree = $cache->{$filename} = undef;
     }
 
-    my ($output, $tree) = $self->process($template, $values);
-    $self->{cached}{$filename} = $tree;
+    defined $tree || defined wantarray
+        or die "ERROR: cannot find template file '$filename'";
 
               wantarray ? ($output, $tree)  # LIST context
     : defined wantarray ? $output           # SCALAR context
     :                     print $output;    # VOID context
 }
-
 
 sub defineMacro($$$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
@@ -156,15 +164,13 @@ sub defineMacro($$$$)
     
 }
 
-
 sub valueFor($;$$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
 
 #warn "Looking for $tag";
 #warn Dumper $self->{values};
     for(my $set = $self->{values}; defined $set; $set = $set->{NEXT})
-    {   
-        my $v = $set->{$tag};
+    {   my $v = $set->{$tag};
 
         if(defined $v)
         {   # HASH  defines container
@@ -179,6 +185,9 @@ sub valueFor($;$$$)
                  : ($v->($tag, $attrs, $then, $else))[0]
         }
 
+        return wantarray ? (undef, $attrs, $then, $else) : undef
+            if exists $set->{$tag};
+
         my $code = $set->{DYNAMIC};
         if(defined $code)
         {   my ($value, @other) = $code->($tag, $attrs, $then, $else);
@@ -188,9 +197,8 @@ sub valueFor($;$$$)
         }
     }
 
-    ();
+    wantarray ? (undef, $attrs, $then, $else) : undef;
 }
-
 
 sub allValuesFor($;$$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
@@ -212,13 +220,12 @@ sub allValuesFor($;$$$)
     @values;
 }
 
-
 sub pushValues($)
 {   my ($self, $attrs) = @_;
 
     if(my $markers = $attrs->{markers})
     {   my @markers = ref $markers eq 'ARRAY' ? @$markers
-         : map {s/\\\,//g; $_} split /(?!<\\)\,\s*/, $markers;
+          : map {s/\\\,//g; $_} split /(?!<\\)\,\s*/, $markers;
 
         push @markers, $markers[0] . '/'
             if @markers==2;
@@ -238,12 +245,10 @@ sub pushValues($)
     $self->{values} = { %$attrs, NEXT => $self->{values} };
 }
 
-
 sub popValues()
 {   my $self = shift;
     $self->{values} = $self->{values}{NEXT};
 }
-
 
 sub includeTemplate($$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
@@ -252,7 +257,14 @@ sub includeTemplate($$$)
         and die "ERROR: template is not a container";
 
     if(my $fn = $attrs->{file})
-    {   return (scalar $self->processFile($fn, $attrs));
+    {   my $output = $self->processFile($fn,  $attrs);
+        $output    = $self->processFile($attrs->{alt}, $attrs)
+            if !defined $output && $attrs->{alt};
+
+        defined $output
+            or die "ERROR: cannot find template file '$fn'\n";
+
+        return ($output);
     }
 
     if(my $name = $attrs->{macro})
@@ -265,7 +277,6 @@ sub includeTemplate($$$)
     my $source = $self->valueFor('source') || '??';
     die "ERROR: file or macro attribute required for template in $source\n";
 }
-
 
 sub loadFile($)
 {   my ($self, $relfn) = @_;
@@ -285,10 +296,8 @@ sub loadFile($)
         }
     }
 
-    unless(defined $absfn)
-    {   my $source = $self->valueFor('source') || '??';
-        die "ERROR: Cannot find template $relfn in $source\n";
-    }
+    defined $absfn
+        or return undef;
 
     my $in = IO::File->new($absfn, 'r');
     unless(defined $in)
@@ -299,17 +308,16 @@ sub loadFile($)
     \(join '', $in->getlines);  # auto-close in
 }
 
-
 sub parse($@)
 {   my ($self, $template) = (shift, shift);
     $self->process(\$template, @_);
 }
 
-
 sub parseTemplate($)
 {   my ($self, $template) = @_;
 
-    my @frags;
+    defined $template
+        or return undef;
 
     my $markers = $self->valueFor('markers');
 
@@ -317,6 +325,8 @@ sub parseTemplate($)
     $template =~ s! \\ (?: \s* (?: \\ \s*)? \n)+
                     (?: \s* (?= $markers->[0] | $markers->[3] ))?
                   !!mgx;
+
+    my @frags;
 
     # NOT_$tag supported for backwards compat
     while( $template =~ s!^(.*?)        # text before container
@@ -368,23 +378,21 @@ sub parseTemplate($)
     \@frags;
 }
 
-
 sub parseAttrs($)
 {   my ($self, $string) = @_;
 
     my %attrs;
     while( $string =~
-        s/^\s*(\w+)                     # attribute name
-           \s* (?: \=\>? \s*            # optional a value
+        s!^\s* (\w+)                # attribute name
+           \s* (?: \= \>? \s*       # an optional value
                    ( \"[^"]*\"          # dquoted value
                    | \'[^']*\'          # squoted value
                    | \$\{ [^}]+ \}      # complex variable
-                   | \$\w+              # simple variable
                    | [^\s,]+            # unquoted value
                    )
                 )?
-                \s* \,?                 # optionally separated by commas
-          //xs)
+                \s* \,?             # optionally separated by commas
+         !!xs)
     {   my ($k, $v) = ($1, $2);
         unless(defined $v)
         {  $attrs{$k} = 1;
@@ -414,15 +422,17 @@ sub parseAttrs($)
             {   push @steps, [ $1, $self->parseAttrs($2) ];
             }
             else
-            {   push @steps, $_;
+            {   push @steps, $_ if length $_;
             }
         }
 
         $attrs{$k} = \@steps;
     }
 
+    die "ERROR: attribute error in '$_[1]'\n"
+        if length $string;
+
     \%attrs;
 }
-
 
 1;

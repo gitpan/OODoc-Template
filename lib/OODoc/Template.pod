@@ -2,6 +2,26 @@
 
 OODoc::Template - Simple template system
 
+=head1 SYNOPSIS
+
+ use OODoc::Template;
+ my $t = OODoc::Template->new;
+
+ my $template = ".....";  # usually read from file
+ my %values   = ( a => 3 );
+
+ # list context keeps parse tree as well
+ my ($output, $tree) = $t->process($template, \%values);
+
+ # scalar context catches output in string
+ my $output = $t->process($template, \%values);
+ my $output = $t->process($tree, \%values);
+ 
+ # void context output to selected file-handle
+ select OUTPUT;
+ $t->process($template, \%values);
+ $t->process($tree, \%values);
+
 =head1 DESCRIPTION
 
 The OODoc::Template module is a light-weight but powerful template
@@ -68,6 +88,10 @@ Process the content of the file with specified FILENAME.  The current
 value of the C<search> path is used as path to find it.  The returns
 behaves the same as L<process()|OODoc::Template/"Processing">.
 
+If the FILENAME is not found, then C<undef> is returned as output.
+However, then this method is used in VOID context, there is no output:
+then an error is raised in stead.
+
 The result of parsing is cached, so there is no need for optimization:
 call this method as often as you want without serious penalty.
 
@@ -102,7 +126,8 @@ $obj-E<gt>B<loadFile>(FILENAME)
 
 =over 4
 
-Returns a string containing the whole contents of the file.
+Returns a string containing the whole contents of the file, or C<undef> if the file
+was not found.
 
 =back
 
@@ -471,6 +496,10 @@ attribute. The filename must be absolute or relative to one of the
 searched directories.  The macro is the name of a pre-declared macro
 block.
 
+Then the C<file> cannot be found (for instance, when the path name
+contains a language component but that template has not yet be
+translated), then the C<alt> (alternative) is attempted if available.
+
 =back
 
 example: change the markers locally
@@ -491,6 +520,10 @@ A macro is used to define a piece of template, but apply it later.
  <!--{/macro}-->
 
  <!--{template macro="chapter" title="hi there!"}-->
+
+example: use of template file
+
+ <!--{template file=$lang/header.txt alt=en/header.txt}->
 
 =head2 White-space removal
 
@@ -523,8 +556,8 @@ The output is:
 
 =head1 SEE ALSO
 
-This module is part of OODoc-Template distribution version 0.1,
-built on July 24, 2007. Website: F<http://perl.overmeer.net/oodoc-template/>
+This module is part of OODoc-Template distribution version 0.11,
+built on July 27, 2007. Website: F<http://perl.overmeer.net/oodoc-template/>
 
 =head1 LICENSE
 
