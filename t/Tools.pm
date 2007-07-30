@@ -7,7 +7,8 @@ use strict;
 
 package Tools;
 use vars '$VERSION';
-$VERSION = '0.11';
+$VERSION = '0.12';
+
 use OODoc::Template;
 use base 'Exporter';
 use Test::More;

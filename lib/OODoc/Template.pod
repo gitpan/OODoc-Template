@@ -2,6 +2,8 @@
 
 OODoc::Template - Simple template system
 
+=head1 INHERITANCE
+
 =head1 SYNOPSIS
 
  use OODoc::Template;
@@ -24,8 +26,14 @@ OODoc::Template - Simple template system
 
 =head1 DESCRIPTION
 
-The OODoc::Template module is a light-weight but powerful template
-system, only implementing the minimal needs for such system.
+The C<OODoc::Template module> is a light-weight but powerful template
+system, only providing display needs for applications, not behavior.
+Let's start with a promise: this module will never grow into a new
+programming language, as all the other template systems did over time.
+
+More examples are needed to explain how to use the module.  You may
+take a look at the source of OODoc::Format::Pod3, although that
+example is not using many features (yet).
 
 =head2 Short introduction
 
@@ -36,15 +44,15 @@ get a rapid overview on the features implemented by this module.
 
 =item .
 
-all values which are to be filled in are either passed in when the
-template is used, or defined within the template files themselves:
-there are no dirty tricks played with name-spaces.
+all values which are to be filled in are either passed-in when the
+template is used, or defined within the template files themselves: there
+are no dirty tricks played with name-spaces or such to collect the data.
 
 =item .
 
-only the if-then-else construct is defined: programming and text
-templates concepts should not be merged, simply because that is awful.
-Programming should be left to programming languages.
+only the if(data available)-then-else construct is defined: programming
+and text templates concepts should not be merged, simply because that
+is awful.  Programming should be left to programming languages.
 
 =item .
 
@@ -556,8 +564,8 @@ The output is:
 
 =head1 SEE ALSO
 
-This module is part of OODoc-Template distribution version 0.11,
-built on July 27, 2007. Website: F<http://perl.overmeer.net/oodoc-template/>
+This module is part of OODoc-Template distribution version 0.12,
+built on July 30, 2007. Website: F<http://perl.overmeer.net/oodoc-template/>
 
 =head1 LICENSE
 

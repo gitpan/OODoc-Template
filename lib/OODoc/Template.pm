@@ -7,10 +7,13 @@ use warnings;
 
 package OODoc::Template;
 use vars '$VERSION';
-$VERSION = '0.11';
+$VERSION = '0.12';
+
 use IO::File   ();
 use Data::Dumper;
+
 my @default_markers = ('<!--{', '}-->', '<!--{/', '}-->');
+
 
 sub new(@)
 {   my ($class, %args) = @_;
@@ -27,11 +30,12 @@ sub init($)
     $args->{macro}    ||= sub { $self->defineMacro(@_) };
     $args->{search}   ||= '.';
     $args->{markers}  ||= \@default_markers;
-    $args->{define}   ||= sub { shift; (+{}, @_) };
+    $args->{define}   ||= sub { shift; (1, @_) };
 
     $self->pushValues($args);
     $self;
 }
+
 
 sub process($)
 {   my ($self, $templ) = (shift, shift);
@@ -70,7 +74,13 @@ sub process($)
            = $self->valueFor($tag, \%attrs, $then, $else);
 
         unless(defined $then || defined $else)
-        {   push @output, $value if defined $value;
+        {   defined $value
+                or next;
+
+            die "ERROR: value for $tag is $value, must be single\n"
+                if ref $value eq 'ARRAY' || ref $value eq 'HASH';
+
+            push @output, $value;
             next;
         }
 
@@ -101,8 +111,11 @@ sub process($)
                  $node->[2] = $nest_tree;
              }
         }
-        elsif(!defined $value) { }
-        else { die "only HASH or ARRAY values can control a loop ($tag)\n" }
+        else
+        {    my ($nest_out, $nest_tree) = $self->process($container);
+             push @output, $nest_out;
+             $node->[2] = $nest_tree;
+        }
 
         $self->popValues if keys %$attrs;
     }
@@ -113,6 +126,7 @@ sub process($)
     : defined wantarray ? join('', @output)           # SCALAR context
     :                     print @output;              # VOID context
 }
+
 
 sub processFile($;@)
 {   my ($self, $filename) = (shift, shift);
@@ -144,6 +158,7 @@ sub processFile($;@)
     :                     print $output;    # VOID context
 }
 
+
 sub defineMacro($$$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
     my $name = $attrs->{name}
@@ -163,6 +178,7 @@ sub defineMacro($$$$)
     ();
     
 }
+
 
 sub valueFor($;$$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
@@ -200,6 +216,7 @@ sub valueFor($;$$$)
     wantarray ? (undef, $attrs, $then, $else) : undef;
 }
 
+
 sub allValuesFor($;$$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
     my @values;
@@ -219,6 +236,7 @@ sub allValuesFor($;$$$)
 
     @values;
 }
+
 
 sub pushValues($)
 {   my ($self, $attrs) = @_;
@@ -245,10 +263,12 @@ sub pushValues($)
     $self->{values} = { %$attrs, NEXT => $self->{values} };
 }
 
+
 sub popValues()
 {   my $self = shift;
     $self->{values} = $self->{values}{NEXT};
 }
+
 
 sub includeTemplate($$$)
 {   my ($self, $tag, $attrs, $then, $else) = @_;
@@ -277,6 +297,7 @@ sub includeTemplate($$$)
     my $source = $self->valueFor('source') || '??';
     die "ERROR: file or macro attribute required for template in $source\n";
 }
+
 
 sub loadFile($)
 {   my ($self, $relfn) = @_;
@@ -308,10 +329,12 @@ sub loadFile($)
     \(join '', $in->getlines);  # auto-close in
 }
 
+
 sub parse($@)
 {   my ($self, $template) = (shift, shift);
     $self->process(\$template, @_);
 }
+
 
 sub parseTemplate($)
 {   my ($self, $template) = @_;
@@ -350,13 +373,6 @@ sub parseTemplate($)
                          !!xs)
         {   $then       = $1;
             my $endline = $2;
-
-            if($then =~ m/$markers->[0] \s* $tag\b /xs)
-            {   # oops: container is terminated for a brother (nesting
-                # is not possible). Correct for the greedyness.
-                $template = $then.$endline.$template;
-                $then     = undef;
-            }
         }
 
         if($not) { ($then, $else) = (undef, $then) }
@@ -377,6 +393,7 @@ sub parseTemplate($)
     push @frags, $template;
     \@frags;
 }
+
 
 sub parseAttrs($)
 {   my ($self, $string) = @_;
@@ -434,5 +451,6 @@ sub parseAttrs($)
 
     \%attrs;
 }
+
 
 1;
