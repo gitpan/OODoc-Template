@@ -1,13 +1,14 @@
 # Copyrights 2003,2007-2008 by Mark Overmeer.
 #  For other contributors see ChangeLog.
 # See the manual pages for details on the licensing terms.
-# Pod stripped from pm file by OODoc 1.03.
+# Pod stripped from pm file by OODoc 1.05.
 use strict;
 use warnings;
 
 package OODoc::Template;
 use vars '$VERSION';
-$VERSION = '0.13';
+$VERSION = '0.14';
+
 
 use IO::File   ();
 use Data::Dumper;
@@ -357,7 +358,7 @@ sub parseTemplate($)
                            $markers->[0] \s*
                            (?: IF \s* )?
                            (NOT (?:_|\s+) )?
-                           (\w+) \s*    # tag
+                           ([\w.-]+) \s*    # tag
                            (.*?) \s*    # attributes
                            $markers->[1]
                          !!xs
@@ -368,7 +369,7 @@ sub parseTemplate($)
 
         if($template =~ s! (.*?)           # contained
                            ( $markers->[2]
-                             \s* $tag \s*  # "our" tag
+                             \s* \Q$tag\E \s*  # "our" tag
                              $markers->[3]
                            )
                          !!xs)
@@ -380,7 +381,7 @@ sub parseTemplate($)
         elsif(!defined $then) { }
         elsif($then =~ s! $markers->[0]
                           \s* ELSE (?:_|\s+)
-                          $tag \s*
+                          \Q$tag\E \s*
                           $markers->[1]
                           (.*)
                         !!xs)
