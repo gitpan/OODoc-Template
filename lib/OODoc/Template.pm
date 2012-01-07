@@ -1,17 +1,19 @@
-# Copyrights 2003,2007-2008 by Mark Overmeer.
+# Copyrights 2003,2007-2012 by Mark Overmeer.
 #  For other contributors see ChangeLog.
 # See the manual pages for details on the licensing terms.
-# Pod stripped from pm file by OODoc 1.05.
+# Pod stripped from pm file by OODoc 2.00.
 use strict;
 use warnings;
 
 package OODoc::Template;
 use vars '$VERSION';
-$VERSION = '0.14';
+$VERSION = '0.15';
 
 
-use IO::File   ();
+use IO::File     ();
 use Data::Dumper;
+use Scalar::Util 'weaken';
+use File::Spec   ();
 
 my @default_markers = ('<!--{', '}-->', '<!--{/', '}-->');
 
@@ -27,8 +29,10 @@ sub init($)
     $self->{cached}     = {};
     $self->{macros}     = {};
 
-    $args->{template} ||= sub { $self->includeTemplate(@_) };
-    $args->{macro}    ||= sub { $self->defineMacro(@_) };
+    my $s = $self; weaken $s;   # avoid circular ref
+    $args->{template} ||= sub { $s->includeTemplate(@_) };
+    $args->{macro}    ||= sub { $s->defineMacro(@_) };
+
     $args->{search}   ||= '.';
     $args->{markers}  ||= \@default_markers;
     $args->{define}   ||= sub { shift; (1, @_) };
@@ -279,7 +283,7 @@ sub includeTemplate($$$)
         and die "ERROR: template is not a container";
 
     if(my $fn = $attrs->{file})
-    {   my $output = $self->processFile($fn,  $attrs);
+    {   my $output = $self->processFile($fn, $attrs);
         $output    = $self->processFile($attrs->{alt}, $attrs)
             if !defined $output && $attrs->{alt};
 

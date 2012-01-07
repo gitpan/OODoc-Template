@@ -2,8 +2,6 @@
 
 OODoc::Template - Simple template system
 
-=head1 INHERITANCE
-
 =head1 SYNOPSIS
 
  use OODoc::Template;
@@ -41,19 +39,19 @@ get a rapid overview on the features implemented by this module.
 
 =over 4
 
-=item .
+=item
 
 all values which are to be filled in are either passed-in when the
 template is used, or defined within the template files themselves: there
 are no dirty tricks played with name-spaces or such to collect the data.
 
-=item .
+=item
 
 only the if(data available)-then-else construct is defined: programming
 and text templates concepts should not be merged, simply because that
 is awful.  Programming should be left to programming languages.
 
-=item .
+=item
 
 the templates are compiled, so a second run within the same program
 will be very fast.
@@ -64,9 +62,9 @@ will be very fast.
 
 =head2 Constructors
 
-OODoc::Template-E<gt>B<new>(OPTIONS)
-
 =over 4
+
+=item OODoc::Template-E<gt>B<new>(OPTIONS)
 
 Create a new formatter object.  All OPTIONS are used as global set of
 attributes, so used for each template processing started via this
@@ -77,19 +75,15 @@ of the predefined tags (like C<template> and C<search>) here.
 
 =head2 Processing
 
-$obj-E<gt>B<process>(STRING|SCALAR|ARRAY, HASH|PAIRS)
-
 =over 4
+
+=item $obj-E<gt>B<process>(STRING|SCALAR|ARRAY, HASH|PAIRS)
 
 The template is passed as unprocessed SCALAR to the STRING, or
 an already parsed template (which is an ARRAY).  Values are
 passed as a HASH or list of PAIRS.
 
-=back
-
-$obj-E<gt>B<processFile>(FILENAME, HASH|PAIRS)
-
-=over 4
+=item $obj-E<gt>B<processFile>(FILENAME, HASH|PAIRS)
 
 Process the content of the file with specified FILENAME.  The current
 value of the C<search> path is used as path to find it.  The returns
@@ -106,59 +100,35 @@ call this method as often as you want without serious penalty.
 
 =head2 Internal administration
 
-$obj-E<gt>B<allValuesFor>(TAG, [ATTRIBUTES, THEN, ELSE])
-
 =over 4
+
+=item $obj-E<gt>B<allValuesFor>(TAG, [ATTRIBUTES, THEN, ELSE])
 
 Collects all values related to TAG in all nestings of values.  The most
 preferred is listed first.
 
-=back
+=item $obj-E<gt>B<defineMacro>(TAG, ATTRIBUTES, THEN, ELSE)
 
-$obj-E<gt>B<defineMacro>(TAG, ATTRIBUTES, THEN, ELSE)
-
-=over 4
-
-=back
-
-$obj-E<gt>B<includeTemplate>(TAG, ATTRIBUTES, THEN, ELSE)
-
-=over 4
+=item $obj-E<gt>B<includeTemplate>(TAG, ATTRIBUTES, THEN, ELSE)
 
 This is the implementation for the C<template> tag.
 
-=back
-
-$obj-E<gt>B<loadFile>(FILENAME)
-
-=over 4
+=item $obj-E<gt>B<loadFile>(FILENAME)
 
 Returns a string containing the whole contents of the file, or C<undef>
 if the file was not found.
 
-=back
-
-$obj-E<gt>B<popValues>
-
-=over 4
+=item $obj-E<gt>B<popValues>()
 
 Remove one level of values.
 
-=back
-
-$obj-E<gt>B<pushValues>(HASH)
-
-=over 4
+=item $obj-E<gt>B<pushValues>(HASH)
 
 Add new level of values to the known list.  The data in the HASH is
 copied, and a reference to the copy returned.  The copy may be changed
 afterwards.
 
-=back
-
-$obj-E<gt>B<valueFor>(TAG, [ATTRIBUTES, THEN, ELSE])
-
-=over 4
+=item $obj-E<gt>B<valueFor>(TAG, [ATTRIBUTES, THEN, ELSE])
 
 Lookup the value for TAG in the known data.  See section L</values>
 about the way this is done.  The ATTRIBUTES (HASH of key-value pairs)
@@ -169,27 +139,19 @@ a code reference which is to produce new values dynamicly.
 
 =head2 Parsing
 
-$obj-E<gt>B<parse>(STRING, (HASH|PAIRS))
-
 =over 4
+
+=item $obj-E<gt>B<parse>(STRING, (HASH|PAIRS))
 
 This method is deprecated.  Please use L<process()|OODoc::Template/"Processing">.
 
-=back
-
-$obj-E<gt>B<parseAttrs>(STRING)
-
-=over 4
+=item $obj-E<gt>B<parseAttrs>(STRING)
 
 Returns an ARRAY of PAIRS which will create the attributes for
 the called code fragments.  The STRING syntax is described in the
 DETAILS section of this manual page.
 
-=back
-
-$obj-E<gt>B<parseTemplate>(STRING)
-
-=over 4
+=item $obj-E<gt>B<parseTemplate>(STRING)
 
 Try to understand the STRING. Returned is a reference to a tree which
 needs to be called with the correct values.
@@ -363,15 +325,6 @@ is produced dynamically.  Their syntax is like this:
 A string may contain variables, which are stringified.  This means that
 tags which produce hashes or arrays are not usuable to interpolate.
 
-example: 
-
- <!--{section nr => 2, show_number, a => "monkey", chapter => $cnr}-->
- <!--{section nr=2 show_number a=monkey chapter=$cnr}-->
-
-The attributes result (internally) in a hash (of ARGS) which contains
-the keys C<nr>, C<show_number>, C<a>, and C<chapter> with respecively
-values C<2>, true, C<monkey>, and the looked-up value for C<cnr>.
-
 =head3 values
 
 The values which are related to the tags are rather powerful.  When
@@ -509,29 +462,6 @@ translated), then the C<alt> (alternative) is attempted if available.
 
 =back
 
-example: change the markers locally
-
-In this example, the content of the container uses other markup
-symbols than the container itself.
-
-  <!--{define markers="<{,}>" }-->\
-    value of c: <{c}>\
-  <!--{/define}-->
-
-example: use of macro
-
-A macro is used to define a piece of template, but apply it later.
-
- <!--{macro name="chapter"}-->
-    <h2><!--{title}--></h2>
- <!--{/macro}-->
-
- <!--{template macro="chapter" title="hi there!"}-->
-
-example: use of template file
-
- <!--{template file=$lang/header.txt alt=en/header.txt}->
-
 =head2 White-space removal
 
 The template tags are usually quite large with respect to the output
@@ -545,30 +475,14 @@ When the first line with (visual) content starts with a (start or end)
 marker, then the blanks before that are removed as well.  In other cases,
 the blanks are left intact.
 
-example: of white-space removal
-
-The template looks like this:
-
- The follow\
- ing error was\
-
-  produced:
-     <!--{error}-->, \
-     <!--{errno}-->
-
-The output is:
-
- The following error was produced:
-    No such file or directory, 2
-
 =head1 SEE ALSO
 
-This module is part of OODoc-Template distribution version 0.14,
-built on October 20, 2008. Website: F<http://perl.overmeer.net/oodoc-template/>
+This module is part of OODoc-Template distribution version 0.15,
+built on January 08, 2012. Website: F<http://perl.overmeer.net/oodoc-template/>
 
 =head1 LICENSE
 
-Copyrights 2003,2007-2008 by Mark Overmeer. For other contributors see ChangeLog.
+Copyrights 2003,2007-2012 by Mark Overmeer. For other contributors see ChangeLog.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
