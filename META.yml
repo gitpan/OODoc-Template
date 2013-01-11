@@ -1,23 +1,24 @@
---- #YAML:1.0
-name:               OODoc-Template
-version:            0.15
-abstract:           Simple template system
+---
+abstract: 'Simple template system'
 author:
-    - Mark Overmeer
-license:            perl
-distribution_type:  module
-configure_requires:
-    ExtUtils::MakeMaker:  0
+  - 'Mark Overmeer'
 build_requires:
-    ExtUtils::MakeMaker:  0
-requires:
-    Test::More:  0.47
-    Test::Pod:   1
-no_index:
-    directory:
-        - t
-        - inc
-generated_by:       ExtUtils::MakeMaker version 6.56
+  ExtUtils::MakeMaker: 0
+configure_requires:
+  ExtUtils::MakeMaker: 0
+dynamic_config: 1
+generated_by: 'ExtUtils::MakeMaker version 6.6302, CPAN::Meta::Converter version 2.120921'
+license: perl
 meta-spec:
-    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
-    version:  1.4
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: OODoc-Template
+no_index:
+  directory:
+    - t
+    - inc
+requires:
+  Log::Report: 0.992
+  Test::More: 0.47
+  Test::Pod: 1
+version: 0.16
